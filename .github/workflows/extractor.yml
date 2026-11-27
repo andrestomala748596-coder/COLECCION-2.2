@@ -7,6 +7,7 @@ on:
       - "urls.txt"
       - "extractor.py"
       - "requirements.txt"
+      - "sync_supabase.py"
       - ".github/workflows/extractor.yml"
   schedule:
     - cron: "0 */2 * * *"
@@ -54,6 +55,12 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: python extractor.py
+      - name: Sincronizar catálogo de series con Supabase
+        env:
+          SUPABASE_URL: https://nyjgdfqxodcmcsdaprzi.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: python sync_supabase.py
       - name: Guardar catálogo
         run: |
           git config user.name "github-actions[bot]"
