@@ -40,5 +40,47 @@
       "https://ok.ru/video/16351413799662"
     ],
     "METODO": "MANUAL"
+  },
+  {
+    "CATEGORIA": "SERIES_24_7",
+    "ID_VIDEO": null,
+    "PLATAFORMA": "ok.ru",
+    "TITULO": "Kick Buttowski: Medio Doble de Riesgo",
+    "FECHA": "2010-02-13",
+    "PORTADA": "https://image.tmdb.org/t/p/w500/xhPpCLky3gmLlAjAs8gf15h6Bxg.jpg",
+    "BACKDROP": "https://image.tmdb.org/t/p/w500/gzoDeOxJ1mvtoBQdk94l5HzVil2.jpg",
+    "GENERO": "Animación, Action & Adventure, Comedia, Kids",
+    "RATING": 8.171,
+    "DURACION": 22,
+    "FRASE_PROMOCIONAL": "",
+    "SINOPSIS": "La historia se centra en Clarence Francis Buttowski, un acróbata que prefiere que lo llamen por el nombre de «Kick» Buttowski. Le gusta mucho la acción, el peligro y las cosas asombrosas y con su mejor amigo Gunther tratan de hacer lo más increíble.",
+    "ACTORES": "  • Charlie Schlatter (Kick Buttowski (voice))\n  • Danny Cooksey (Brad Buttowski (voice))\n  • John DiMaggio (Mr. Vickle (voice))\n  • Eric Christian Olsen (Wade (voice))\n  • Matt Jones (Gunther Magnuson (voice))",
+    "DIRECTOR": "N/A",
+    "TRAILER": "No disponible",
+    "URLS": [
+      "https://ok.ru/video/16351413799662"
+    ],
+    "METODO": "MANUAL"
+  },
+  {
+    "CATEGORIA": "SERIES_24_7",
+    "ID_VIDEO": null,
+    "PLATAFORMA": "ok.ru",
+    "TITULO": "Kick Buttowski: Medio Doble de Riesgo",
+    "FECHA": "2010-02-13",
+    "PORTADA": "https://image.tmdb.org/t/p/w500/xhPpCLky3gmLlAjAs8gf15h6Bxg.jpg",
+    "BACKDROP": "https://image.tmdb.org/t/p/w500/gzoDeOxJ1mvtoBQdk94l5HzVil2.jpg",
+    "GENERO": "Animación, Action & Adventure, Comedia, Kids",
+    "RATING": 8.171,
+    "DURACION": 22,
+    "FRASE_PROMOCIONAL": "",
+    "SINOPSIS": "La historia se centra en Clarence Francis Buttowski, un acróbata que prefiere que lo llamen por el nombre de «Kick» Buttowski. Le gusta mucho la acción, el peligro y las cosas asombrosas y con su mejor amigo Gunther tratan de hacer lo más increíble.",
+    "ACTORES": "  • Charlie Schlatter (Kick Buttowski (voice))\n  • Danny Cooksey (Brad Buttowski (voice))\n  • John DiMaggio (Mr. Vickle (voice))\n  • Eric Christian Olsen (Wade (voice))\n  • Matt Jones (Gunther Magnuson (voice))",
+    "DIRECTOR": "N/A",
+    "TRAILER": "No disponible",
+    "URLS": [
+      "https://ok.ru/video/16351413799662"
+    ],
+    "METODO": "MANUAL"
   }
 ]
