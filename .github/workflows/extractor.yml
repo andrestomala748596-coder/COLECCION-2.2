@@ -55,12 +55,6 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: python extractor.py
-      - name: Sincronizar catálogo de series con Supabase
-        env:
-          SUPABASE_URL: https://nyjgdfqxodcmcsdaprzi.supabase.co
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GITHUB_SHA: ${{ github.sha }}
-        run: python sync_supabase.py
       - name: Guardar catálogo
         run: |
           git config user.name "github-actions[bot]"
@@ -72,3 +66,9 @@ jobs:
             git commit -m "Actualizar catálogo de series 24/7 [skip ci]"
             git push
           fi
+      - name: Sincronizar catálogo de series con Supabase
+        env:
+          SUPABASE_URL: https://nyjgdfqxodcmcsdaprzi.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: python sync_supabase.py
