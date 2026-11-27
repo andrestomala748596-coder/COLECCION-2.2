@@ -1,1 +1,23 @@
-[]
+[
+  {
+    "CATEGORIA": "SERIES_24_7",
+    "ID_VIDEO": null,
+    "PLATAFORMA": "ok.ru",
+    "TITULO": "Mansión Foster para amigos imaginarios",
+    "FECHA": "2004-08-13",
+    "PORTADA": "https://image.tmdb.org/t/p/w500/aerZJVODYwji4BnyWrHFmF3JxhX.jpg",
+    "BACKDROP": "https://image.tmdb.org/t/p/w500/r6NeRD3diZI7dWEFrRhrwYWoxyB.jpg",
+    "GENERO": "Kids, Animación, Familia, Sci-Fi & Fantasy, Comedia",
+    "RATING": 7.8,
+    "DURACION": 22,
+    "FRASE_PROMOCIONAL": "",
+    "SINOPSIS": "Muchos niños tienen amigos imaginarios pero los abandonan al crecer, por eso existe el \"hogar de Foster\" una mansión donde se hospedan los amigos imaginarios de toda la infancia que son abandonados por sus creadores al crecer, pueden vivir hasta ser adoptados por otro niño. Mac, un niño de 8 años de gran inteligencia y corazón y su amigo imaginario Blooregard Q. Kazoo o (simplemente Bloo) viven sus aventuras allí, ya que no quieren separarse aún.",
+    "ACTORES": "  • Keith Ferguson (Bloo (voice))\n  • Sean Marquette (Mac (voice))\n  • Grey DeLisle (Frankie / Duchess / Mac's mother / Goo (voice))\n  • Phil LaMarr (Wilt / Jackie Khones (voice))\n  • Tom Kenny (Eduardo (voice))",
+    "DIRECTOR": "N/A",
+    "TRAILER": "No disponible",
+    "URLS": [
+      "https://ok.ru/video/16335479769838"
+    ],
+    "METODO": "MANUAL"
+  }
+]
