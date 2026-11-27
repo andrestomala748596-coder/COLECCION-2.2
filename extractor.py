@@ -30,25 +30,147 @@ def classify(url: str, item: dict) -> str:
     if host.endswith("videa.hu"): return "videa_hu"
     return "directo"
 
+def _metadata_object(page: str) -> dict | None:
+    """Extrae metadata como JSON balanceado, respetando strings y escapes."""
+    match = re.search(r'"metadata"\s*:\s*\{', page, re.I)
+    if not match:
+        return None
+    start = match.end() - 1
+    depth = 0
+    in_string = False
+    escape = False
+    end = -1
+    for index in range(start, len(page)):
+        char = page[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                end = index
+                break
+    if end < 0:
+        return None
+    raw = page[start:end + 1]
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            data = json.loads(re.sub(r",\s*([}\]])", r"\1", raw))
+        except json.JSONDecodeError:
+            return None
+    return data if isinstance(data, dict) else None
+
+
+def _okru_quality(video: dict) -> float:
+    """Puntúa resolución, tipo/calidad declarada y bitrate."""
+    def number(value):
+        try:
+            return float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    width = number(video.get("width"))
+    height = number(video.get("height"))
+    bitrate = number(video.get("bitrate"))
+    score = width * height * 1000.0
+    try:
+        score += int(video.get("type")) * 1_000_000.0
+    except (TypeError, ValueError):
+        levels = {
+            "ultra": 7, "2160": 7, "4k": 7,
+            "quadhd": 6, "1440": 6,
+            "full_hd": 5, "fullhd": 5, "1080": 5,
+            "hd": 4, "720": 4,
+            "sd": 3, "480": 3,
+            "low": 2, "360": 2,
+            "lowest": 1, "240": 1,
+            "mobile": 0, "144": 0,
+        }
+        name = str(video.get("name", "")).lower()
+        for token, level in levels.items():
+            if token in name:
+                score += level * 1_000_000.0
+                break
+    return score + bitrate
+
+
+def _extract_okru(url: str) -> str | None:
+    """Obtiene la variante reproducible de mayor calidad publicada por OK.ru."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not (host == "ok.ru" or host.endswith(".ok.ru")):
+        return None
+
+    headers = {
+        "User-Agent": UA,
+        "Referer": "https://ok.ru/",
+        "Accept-Language": "es,en;q=0.8",
+    }
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    page = html.unescape(response.text)
+    page = page.replace(r"\/", "/").replace(r"\u0026", "&").replace(r"\u003D", "=")
+    metadata = _metadata_object(page)
+    if not metadata:
+        return None
+
+    videos = metadata.get("videos", [])
+    candidates = []
+    if isinstance(videos, list):
+        for video in videos:
+            if not isinstance(video, dict):
+                continue
+            direct = video.get("url")
+            if not isinstance(direct, str):
+                continue
+            direct = normalize(direct.strip())
+            if direct.startswith(("http://", "https://")):
+                candidates.append((_okru_quality(video), direct))
+
+    if candidates:
+        return max(candidates, key=lambda candidate: candidate[0])[1]
+
+    # Algunos formatos de página publican HLS/DASH fuera de la lista videos.
+    for key in ("ondemandHls", "ondemandDash"):
+        direct = metadata.get(key)
+        if isinstance(direct, str):
+            direct = normalize(direct.strip())
+            if direct.startswith(("http://", "https://")):
+                return direct
+    return None
+
+
 def extract(url: str, platform: str) -> str | None:
-    headers = {"User-Agent": UA, "Referer": url}
     if platform == "ok_ru":
         try:
-            response = requests.get(url, headers=headers, timeout=30); response.raise_for_status()
-            page = html.unescape(response.text).replace(r"\/", "/")
-            match = re.search(r'"metadata"\s*:\s*(\{.*?\})\s*,\s*"[^"]+"', page, re.S)
-            if match:
-                data = json.loads(match.group(1))
-                candidates = [v.get("url") for v in data.get("videos", []) if isinstance(v, dict) and v.get("url")]
-                if candidates: return candidates[-1]
-        except (requests.RequestException, ValueError, TypeError): pass
+            return _extract_okru(url)
+        except (requests.RequestException, ValueError, TypeError):
+            return None
+
     try:
-        result = subprocess.run(["yt-dlp", "--no-warnings", "--no-playlist", "--skip-download", "-g", url],
-                                capture_output=True, text=True, timeout=75, check=False)
-    except (OSError, subprocess.TimeoutExpired): return None
+        result = subprocess.run(
+            ["yt-dlp", "--no-warnings", "--no-playlist", "--skip-download", "-g", url],
+            capture_output=True, text=True, timeout=75, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
     if result.returncode == 0:
-        return next((line.strip() for line in result.stdout.splitlines()
-                     if line.strip().startswith(("http://", "https://"))), None)
+        return next(
+            (line.strip() for line in result.stdout.splitlines()
+             if line.strip().startswith(("http://", "https://"))),
+            None
+        )
     return None
 
 def source_urls(item: dict) -> list[str]:
