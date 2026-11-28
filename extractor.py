@@ -458,7 +458,7 @@ def main():
             print(f"AVISO: registro {index} no es un objeto; se omite.")
             continue
         movie = dict(original)
-        title = movie.get("TITULO", f"Película {index}")
+        title = movie.get("TITULO", f"Serie {index}")
         print(f"[{index}/{len(movies)}] {title}")
         # Process each platform represented in the original URLs. Existing direct
         # links in URLS are also validated by the direct platform pass.
