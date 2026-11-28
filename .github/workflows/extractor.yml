@@ -8,7 +8,6 @@ on:
     paths:
       - "urls.txt"
       - "extractor.py"
-      - "scripts/**"
       - "requirements.txt"
       - "sync_supabase.py"
       - ".github/workflows/extractor.yml"
@@ -67,14 +66,14 @@ jobs:
       - name: Ejecutar extracción por plataforma
         env:
           PYTHONUNBUFFERED: "1"
-        run: python scripts/pipeline.py
+        run: python extractor.py
 
       - name: Guardar catálogo actualizado
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add base series category_list.json
+          git add series category_list.json
 
           if git diff --cached --quiet; then
             echo "No hay cambios que guardar."
