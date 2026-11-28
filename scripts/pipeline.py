@@ -55,6 +55,26 @@ def obtener_id(movie):
     return movie.get("ID_VIDEO") or movie.get("ID_OKRU") or movie.get("TMDB_ID") or movie.get("ID")
 
 
+def identidad_registro(movie):
+    """Identidad estable: ID cuando existe; si no, URL(s) originales."""
+    mid = obtener_id(movie)
+    if mid is not None and str(mid).strip():
+        return "id:" + str(mid).strip()
+
+    urls = sorted({
+        normalizar_url(str(url).strip()).rstrip("/")
+        for url in urls_de(movie)
+        if isinstance(url, str) and url.strip()
+    })
+    if urls:
+        return "url:" + "|".join(urls)
+
+    titulo = re.sub(r"\\s+", " ", str(movie.get("TITULO") or "").strip().casefold())
+    fecha = str(movie.get("FECHA") or "").strip()
+    categoria = normalizar_categoria(movie.get("CATEGORIA", "GENERAL"))
+    return f"meta:{categoria}|{titulo}|{fecha}"
+
+
 def urls_de(movie):
     urls = movie.get("URLS")
     if not isinstance(urls, list):
@@ -67,15 +87,27 @@ def urls_de(movie):
 def merge_movies(existing, new_movies):
     data = [dict(x) for x in existing if isinstance(x, dict)] if isinstance(existing, list) else []
     positions = {}
-    for i, movie in enumerate(data):
-        mid = obtener_id(movie)
-        if mid is not None:
-            positions[str(mid)] = i
+    unique_data = []
+    for movie in data:
+        key = identidad_registro(movie)
+        if key in positions:
+            index = positions[key]
+            old = unique_data[index]
+            merged = dict(old)
+            merged.update(movie)
+            old_cache = old.get("_EXTRACTED_BY_URL", {})
+            new_cache = movie.get("_EXTRACTED_BY_URL", {})
+            if isinstance(old_cache, dict) and isinstance(new_cache, dict):
+                merged["_EXTRACTED_BY_URL"] = {**old_cache, **new_cache}
+            unique_data[index] = merged
+        else:
+            positions[key] = len(unique_data)
+            unique_data.append(movie)
+    data = unique_data
 
     for movie in new_movies:
-        mid = obtener_id(movie)
-        key = str(mid) if mid is not None else None
-        if key is not None and key in positions:
+        key = identidad_registro(movie)
+        if key in positions:
             old = data[positions[key]]
             merged = dict(old)
             merged.update(movie)
@@ -92,8 +124,7 @@ def merge_movies(existing, new_movies):
                 merged["_EXTRACTED_BY_URL"] = {**old_cache, **new_cache}
             data[positions[key]] = merged
         else:
-            if key is not None:
-                positions[key] = len(data)
+            positions[key] = len(data)
             data.append(movie)
     return data
 
