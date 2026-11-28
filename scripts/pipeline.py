@@ -179,7 +179,9 @@ def main():
     # lo que ya exista y publicar categorías, sin borrar el directorio.
     for platform in PLATFORM_ORDER:
         print(f"\n===== PLATAFORMA: {platform} =====", flush=True)
-        source_records = read_json(BASE_FILES[platform], [])
+        source_records = merge_movies(read_json(BASE_FILES[platform], []), [])
+        # Quitar duplicados antes de extraer: una misma URL solo se procesa una vez.
+        atomic_json(BASE_FILES[platform], source_records)
         processed = []
         for index, movie in enumerate(source_records):
             if not isinstance(movie, dict):
