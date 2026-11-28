@@ -321,58 +321,246 @@ def _extract_one(url, platform):
     return None
 
 
+def validar_url_directa(url, source_url=None):
+    """Comprueba accesibilidad y tipo de contenido sin descargar el vídeo completo."""
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return False
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/vnd.apple.mpegurl, application/dash+xml, video/*, audio/*, */*;q=0.8",
+    }
+    if source_url:
+        headers["Referer"] = source_url
+    try:
+        with requests.get(url, headers=headers, timeout=TIMEOUT, stream=True, allow_redirects=True) as response:
+            if not 200 <= response.status_code < 300:
+                return False
+            content_type = response.headers.get("Content-Type", "").lower()
+            path = urlparse(response.url).path.lower()
+            sample = next(response.iter_content(chunk_size=4096), b"")
+            if not sample:
+                return False
+            if b"#EXTM3U" in sample[:2048] or "mpegurl" in content_type:
+                return True
+            if "dash+xml" in content_type or path.endswith(".mpd"):
+                return b"<MPD" in sample or "dash+xml" in content_type
+            if content_type.startswith("video/") or content_type.startswith("audio/"):
+                return True
+            if path.endswith((".mp4", ".m4v", ".mkv", ".mov", ".webm", ".ts", ".aac", ".mp3")):
+                # Accept recognizable media signatures or a successful media response.
+                return response.status_code == 200 and bool(sample)
+            return False
+    except requests.RequestException:
+        return False
+
+
 def extraer_pelicula(pelicula, plataforma):
-    """Procesa una película y conserva las URLs extraídas previamente si falla."""
+    """Renueva enlaces directos; nunca modifica el campo fuente URLS."""
     result = dict(pelicula) if isinstance(pelicula, dict) else {}
+    # URLS is the input/base. Read it, but do not mutate it.
     urls = _source_urls(result)
     previous = result.get("URLS_DIRECTAS", [])
     if isinstance(previous, str):
         previous = [previous] if previous else []
     if not isinstance(previous, list):
         previous = []
-    direct_urls = list(dict.fromkeys(x for x in previous if isinstance(x, str) and x.startswith(("http://", "https://"))))
+    old_primary = result.get("URL_DIRECTA")
+    old_candidates = list(dict.fromkeys(
+        x for x in [*previous, old_primary]
+        if isinstance(x, str) and x.startswith(("http://", "https://"))
+    ))
+
+    # Do not trust cached extraction results: source links can rotate or expire.
     cache = result.get("_EXTRACTED_BY_URL", {})
     if not isinstance(cache, dict):
         cache = {}
+    new_direct_urls = []
     failures = []
 
     for source_url in urls:
         if clasificar_url(source_url, result) != plataforma:
             continue
+        candidate = None
         if es_url_directa(source_url, result):
-            if source_url not in direct_urls:
-                direct_urls.append(source_url)
-            continue
-        cached = cache.get(source_url)
-        if isinstance(cached, str) and cached.startswith(("http://", "https://")):
-            if cached not in direct_urls:
-                direct_urls.append(cached)
-            continue
-        try:
-            extracted = _extract_one(source_url, plataforma)
-        except Exception as exc:
-            extracted = None
-            failures.append(f"{type(exc).__name__}: {exc}")
-        if extracted and extracted.startswith(("http://", "https://")):
-            cache[source_url] = extracted
-            if extracted not in direct_urls:
-                direct_urls.append(extracted)
+            candidate = source_url
         else:
-            failures.append(f"No se pudo extraer: {source_url}")
+            try:
+                candidate = _extract_one(source_url, plataforma)
+            except Exception as exc:
+                failures.append(f"{type(exc).__name__}: {exc}")
 
-    result["URLS_DIRECTAS"] = direct_urls
-    if direct_urls:
-        result["URL_DIRECTA"] = direct_urls[0]
-    else:
-        # No borrar un resultado válido que ya estuviera en el registro.
-        old = result.get("URL_DIRECTA")
-        if isinstance(old, str) and old.startswith(("http://", "https://")):
-            result["URLS_DIRECTAS"] = [old]
+        if candidate and validar_url_directa(candidate, source_url):
+            if candidate not in new_direct_urls:
+                new_direct_urls.append(candidate)
+            cache[source_url] = candidate
         else:
-            result["URL_DIRECTA"] = ""
+            failures.append(f"No se pudo extraer y validar: {source_url}")
+
+    # Replace old extracted URLs when a new validated URL exists.
+    # If extraction fails, preserve only old URLs that still pass validation.
+    if not new_direct_urls:
+        for old_url in old_candidates:
+            if validar_url_directa(old_url):
+                new_direct_urls.append(old_url)
+
+    result["URLS_DIRECTAS"] = list(dict.fromkeys(new_direct_urls))
+    result["URL_DIRECTA"] = new_direct_urls[0] if new_direct_urls else ""
     result["_EXTRACTED_BY_URL"] = cache
     if failures:
         result["_EXTRACTION_ERRORS"] = failures
     else:
         result.pop("_EXTRACTION_ERRORS", None)
     return result
+
+
+def _movie_key(movie):
+    for key in ("ID_VIDEO", "ID_OKRU", "TMDB_ID"):
+        value = movie.get(key)
+        if value not in (None, ""):
+            return (key, str(value))
+    return None
+
+
+def _load_json(path, default):
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            value = json.load(file)
+        return value if isinstance(value, type(default)) else default
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def main():
+    import os
+    import time
+
+    print("AJPLAY: iniciando extractor sin pipeline...")
+    input_path = "urls.txt"
+    if not os.path.isfile(input_path):
+        raise SystemExit("ERROR: no existe urls.txt. No se creará ni se modificará automáticamente.")
+    try:
+        with open(input_path, "r", encoding="utf-8") as file:
+            raw = file.read()
+        movies = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"ERROR: no se pudo leer urls.txt como JSON válido: {exc}")
+    if not isinstance(movies, list):
+        raise SystemExit("ERROR: urls.txt debe contener una lista JSON de series.")
+    if not movies:
+        print("urls.txt no contiene series; no se modifica ningún archivo.")
+        return
+
+    # Work on copies. The source urls.txt remains byte-for-byte untouched.
+    processed = []
+    platform_keys = ("ok_ru", "vimeos", "tokyvideo", "videa_hu", "directo")
+    for index, original in enumerate(movies, 1):
+        if not isinstance(original, dict):
+            print(f"AVISO: registro {index} no es un objeto; se omite.")
+            continue
+        movie = dict(original)
+        title = movie.get("TITULO", f"Película {index}")
+        print(f"[{index}/{len(movies)}] {title}")
+        # Process each platform represented in the original URLs. Existing direct
+        # links in URLS are also validated by the direct platform pass.
+        seen_platforms = set()
+        for source_url in _source_urls(movie):
+            platform = clasificar_url(source_url, movie)
+            if platform in platform_keys:
+                seen_platforms.add(platform)
+        # The movie-level function renews all sources for each detected platform;
+        # accumulate only current validated results, not stale previous results.
+        combined = []
+        old_candidates = movie.get("URLS_DIRECTAS", [])
+        if isinstance(old_candidates, str):
+            old_candidates = [old_candidates] if old_candidates else []
+        if not isinstance(old_candidates, list):
+            old_candidates = []
+        old_primary = movie.get("URL_DIRECTA")
+        if isinstance(old_primary, str) and old_primary:
+            old_candidates = [*old_candidates, old_primary]
+        errors = []
+        for platform in platform_keys:
+            if platform not in seen_platforms:
+                continue
+            # Do not let each platform pass carry stale links into the next one.
+            candidate_movie = dict(movie)
+            candidate_movie["URLS_DIRECTAS"] = []
+            candidate_movie["URL_DIRECTA"] = ""
+            updated = extraer_pelicula(candidate_movie, platform)
+            for direct in updated.get("URLS_DIRECTAS", []):
+                if direct not in combined:
+                    combined.append(direct)
+            movie["_EXTRACTED_BY_URL"] = updated.get("_EXTRACTED_BY_URL", movie.get("_EXTRACTED_BY_URL", {}))
+            errors.extend(updated.get("_EXTRACTION_ERRORS", []))
+        # If no current source yielded a validated URL, retain only an old link
+        # that still validates. A successful new extraction replaces old results.
+        if not combined:
+            for old_url in old_candidates:
+                if isinstance(old_url, str) and validar_url_directa(old_url) and old_url not in combined:
+                    combined.append(old_url)
+        movie["URLS_DIRECTAS"] = combined
+        movie["URL_DIRECTA"] = combined[0] if combined else ""
+        if errors:
+            movie["_EXTRACTION_ERRORS"] = errors
+        if not movie.get("_EXTRACTION_ERRORS"):
+            movie.pop("_EXTRACTION_ERRORS", None)
+        processed.append(movie)
+        time.sleep(0.1)
+
+    os.makedirs("series", exist_ok=True)
+    by_category = {}
+    for movie in processed:
+        category = str(movie.get("CATEGORIA") or "GENERAL").strip().upper() or "GENERAL"
+        # Avoid path traversal from malformed category values.
+        category = re.sub(r"[^A-Z0-9_-]+", "_", category).strip("_") or "GENERAL"
+        by_category.setdefault(category, []).append(movie)
+
+    for category, current_movies in by_category.items():
+        path = os.path.join("series", f"{category}.json")
+        existing = _load_json(path, [])
+        if not isinstance(existing, list):
+            existing = []
+        merged = list(existing)
+        positions = {}
+        for pos, item in enumerate(merged):
+            if isinstance(item, dict):
+                key = _movie_key(item)
+                if key:
+                    positions[key] = pos
+                tmdb = item.get("TMDB_ID")
+                if tmdb not in (None, ""):
+                    positions[("TMDB_ID", str(tmdb))] = pos
+        for movie in current_movies:
+            key = _movie_key(movie)
+            tmdb_key = ("TMDB_ID", str(movie.get("TMDB_ID"))) if movie.get("TMDB_ID") not in (None, "") else None
+            pos = positions.get(key) if key else None
+            if pos is None and tmdb_key:
+                pos = positions.get(tmdb_key)
+            if pos is None:
+                merged.append(movie)
+                pos = len(merged) - 1
+            else:
+                # Replace the full record so the extracted URL is renewed, while
+                # preserving the original source URLS from the base input.
+                merged[pos] = movie
+            if key:
+                positions[key] = pos
+            if tmdb_key:
+                positions[tmdb_key] = pos
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(merged, file, indent=2, ensure_ascii=False)
+        print(f"Actualizado {path}: {len(merged)} series")
+
+    category_path = "category_list.json"
+    existing_categories = _load_json(category_path, [])
+    all_categories = list(dict.fromkeys(
+        [str(x).upper() for x in existing_categories if isinstance(x, str)] + list(by_category.keys())
+    ))
+    with open(category_path, "w", encoding="utf-8") as file:
+        json.dump(all_categories, file, indent=2, ensure_ascii=False)
+
+    print(f"Proceso completado. Procesadas: {len(processed)}. urls.txt se conservó sin modificar.")
+
+
+if __name__ == "__main__":
+    main()
