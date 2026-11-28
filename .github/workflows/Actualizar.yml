@@ -66,11 +66,163 @@ jobs:
             git rebase "origin/$GITHUB_REF_NAME"
             git push origin "HEAD:$GITHUB_REF_NAME"
           fi
-      - name: Publicar catálogo completo en Supabase
+      - name: Preparar catálogo para Supabase
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP" "$GITHUB_SHA" <<'PY'
+          import json, sys
+          from pathlib import Path
+
+          files = sorted(Path("series").glob("*.json"))
+          if not files:
+              raise SystemExit("ERROR: no hay JSON en series/")
+
+          rows = {}
+          for path in files:
+              raw = json.loads(path.read_text(encoding="utf-8"))
+              items = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else None
+              if items is None:
+                  raise SystemExit(f"ERROR: formato inesperado en {path}")
+
+              for series_item in items:
+                  if not isinstance(series_item, dict):
+                      continue
+                  category = str(series_item.get("CATEGORIA") or series_item.get("categoria") or path.stem).strip() or path.stem
+
+                  def text_value(value):
+                      if value is None or value == "":
+                          return None
+                      if isinstance(value, (dict, list)):
+                          return json.dumps(value, ensure_ascii=False)
+                      return str(value)
+
+                  def number_value(value):
+                      if value is None or value == "":
+                          return None
+                      try:
+                          return float(value)
+                      except (ValueError, TypeError):
+                          return None
+
+                  def integer_value(value):
+                      if value is None or value == "":
+                          return None
+                      try:
+                          number = float(value)
+                          return int(number) if number.is_integer() else None
+                      except (ValueError, TypeError):
+                          return None
+
+                  def date_value(value):
+                      if value is None or value == "":
+                          return None
+                      from datetime import date
+                      try:
+                          return date.fromisoformat(str(value).strip()[:10]).isoformat()
+                      except (ValueError, TypeError):
+                          return None
+
+                  video_id = text_value(series_item.get("ID_VIDEO") or series_item.get("ID_OKRU"))
+                  title = text_value(series_item.get("TITULO")) or "Sin título"
+                  key = str(video_id or f"{category}:{title}")
+                  row = {
+                      "id_video": video_id,
+                      "plataforma": text_value(series_item.get("PLATAFORMA")),
+                      "titulo": title,
+                      "fecha": date_value(series_item.get("FECHA")),
+                      "portada": text_value(series_item.get("PORTADA")),
+                      "backdrop": text_value(series_item.get("BACKDROP")),
+                      "genero": text_value(series_item.get("GENERO")),
+                      "rating": number_value(series_item.get("RATING")),
+                      "duracion": integer_value(series_item.get("DURACION")),
+                      "frase_promocional": text_value(series_item.get("FRASE_PROMOCIONAL")),
+                      "sinopsis": text_value(series_item.get("SINOPSIS")),
+                      "actores": text_value(series_item.get("ACTORES")),
+                      "director": text_value(series_item.get("DIRECTOR")),
+                      "trailer": text_value(series_item.get("TRAILER")),
+                      "urls": [str(x) for x in (series_item.get("URLS") if isinstance(series_item.get("URLS"), list) else series_item.get("URLS_OKRU", [])) if isinstance(x, str)],
+                      "metodo": text_value(series_item.get("METODO")),
+                      "urls_directas": [str(x) for x in series_item.get("URLS_DIRECTAS", []) if isinstance(x, str)] if isinstance(series_item.get("URLS_DIRECTAS"), list) else [],
+                      "url_directa": text_value(series_item.get("URL_DIRECTA")),
+                      "extracted_by_url": series_item.get("_EXTRACTED_BY_URL") if isinstance(series_item.get("_EXTRACTED_BY_URL"), dict) else {},
+                      "categoria": category
+                  }
+                  rows[(key, category)] = row
+
+          records = list(rows.values())
+          if not records:
+              raise SystemExit("ERROR: catálogo vacío; no se publicará")
+          out = Path(sys.argv[1])
+          (out / "ajplay-catalog.json").write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+          for old in out.glob("ajplay-rest-batch-*.json"):
+              old.unlink()
+          for start in range(0, len(records), 50):
+              (out / f"ajplay-rest-batch-{start // 50:04d}.json").write_text(
+                  json.dumps(records[start:start + 50], ensure_ascii=False), encoding="utf-8")
+          print(f"JSON: {len(files)}; registros únicos por identificador/categoría: {len(records)}")
+          print(f"Lotes preparados: {(len(records) + 49) // 50}")
+          PY
+
+      - name: Publicar versión completa en Supabase AJPLAY
         env:
           SUPABASE_URL: https://nyjgdfqxodcmcsdaprzi.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
-          python -m pip install requests
-          python sync_supabase.py
+          set -euo pipefail
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "::error::Falta el secreto SUPABASE_SERVICE_ROLE_KEY"; exit 1; }
+          CURL_RETRY=(--retry 5 --retry-delay 10 --retry-max-time 300 --connect-timeout 20 --max-time 300)
+          api() {
+            curl --fail-with-body --silent --show-error "${CURL_RETRY[@]}" --header "apikey: $SUPABASE_SERVICE_ROLE_KEY" --header "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" --header "Content-Type: application/json" "$@"
+          }
+
+          python - "$RUNNER_TEMP/ajplay-catalog.json" "$RUNNER_TEMP/version-request.json" "$GITHUB_SHA" <<'PY'
+          import json, sys
+          from pathlib import Path
+          records = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not records:
+              raise SystemExit("ERROR: no hay registros para publicar")
+          Path(sys.argv[2]).write_text(json.dumps({
+              "estado": "preparando",
+              "commit_sha": sys.argv[3],
+              "total_series": len(records)
+          }), encoding="utf-8")
+          print(f"Versión preparada para {len(records)} registros.")
+          PY
+
+          version_id=""
+          mark_failed() {
+            if [[ -n "$version_id" ]]; then
+              curl --silent --show-error --request PATCH --url "$SUPABASE_URL/rest/v1/series_catalogo_versiones?id=eq.$version_id" --header "apikey: $SUPABASE_SERVICE_ROLE_KEY" --header "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" --header "Content-Type: application/json" --header "Prefer: return=minimal" --data '{"estado":"fallido"}' >/dev/null || true
+            fi
+          }
+          trap mark_failed ERR
+
+          start_response="$(api --request POST --url "$SUPABASE_URL/rest/v1/series_catalogo_versiones?select=id" --header "Prefer: return=representation" --data-binary "@$RUNNER_TEMP/version-request.json")"
+          version_id="$(printf '%s' "$start_response" | python -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d,list) and d and d[0].get("id"), d; print(d[0]["id"])')"
+          echo "Versión de catálogo creada."
+
+          for batch in "$RUNNER_TEMP"/ajplay-rest-batch-*.json; do
+            python - "$batch" "$RUNNER_TEMP/versioned-batch.json" "$version_id" <<'PY'
+          import json, sys
+          from pathlib import Path
+          records = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          for row in records:
+              row["version_id"] = sys.argv[3]
+          Path(sys.argv[2]).write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+          PY
+            api --request POST --url "$SUPABASE_URL/rest/v1/series" --header "Prefer: return=minimal" --data-binary "@$RUNNER_TEMP/versioned-batch.json" >/dev/null
+            echo "Lote $(basename "$batch") insertado."
+          done
+
+          python - "$RUNNER_TEMP/finish-request.json" "$version_id" <<'PY'
+          import json, sys
+          from pathlib import Path
+          Path(sys.argv[1]).write_text(json.dumps({"p_version_id": sys.argv[2]}), encoding="utf-8")
+          PY
+          api --request POST --url "$SUPABASE_URL/rest/v1/rpc/ajplay_publish_series_catalog_version" --data-binary "@$RUNNER_TEMP/finish-request.json" >/dev/null
+          version_id=""
+          trap - ERR
+          echo "Publicación completa: versión activada en Supabase."
