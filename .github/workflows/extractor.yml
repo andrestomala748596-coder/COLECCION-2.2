@@ -14,7 +14,7 @@ on:
       - ".github/workflows/extractor.yml"
 
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "0 */2 * * *"
 
   workflow_dispatch:
 
