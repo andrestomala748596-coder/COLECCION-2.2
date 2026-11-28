@@ -57,7 +57,7 @@ def map_record(item: dict, source: Path) -> dict:
         "metodo": item.get("METODO") or None,
         "urls_directas": direct_urls,
         "url_directa": direct,
-        "extracted_by_url": item.get("EXTRACTED_BY_URL") or {},
+        "extracted_by_url": item.get("_EXTRACTED_BY_URL") or item.get("EXTRACTED_BY_URL") or {},
         "categoria": item.get("CATEGORIA") or source.stem,
     }
 
